@@ -132,16 +132,19 @@ def test_len():
 
 # TODO: Need more cases here
 def test_repr():
-    assert repr(M([0])) == "Matrix([0])"
-    assert repr(M([0], strict=False)) == "Matrix([0], strict=False)"
-    assert repr(M([0], [0, 0], strict=False)) == "Matrix([0, 0], [0, 0], strict=False)"
+    assert repr(M([0])) == "Matrix([Fraction(0, 1)])"
+    assert repr(M([0], strict=False)) == "Matrix([Fraction(0, 1)], strict=False)"
+    assert (
+        repr(M([0], [0, 0], strict=False))
+        == "Matrix([Fraction(0, 1), Fraction(0, 1)], [Fraction(0, 1), Fraction(0, 1)], strict=False)"
+    )
     assert (
         repr(M([0], [0, 0], strict=False, fill=1))
-        == "Matrix([0, 1], [0, 0], strict=False, fill=1)"
+        == "Matrix([Fraction(0, 1), Fraction(1, 1)], [Fraction(0, 1), Fraction(0, 1)], strict=False, fill=1)"
     )
     assert (
         repr(M([0], [0, 0], strict=False, fill=1, fill_from="front"))
-        == 'Matrix([1, 0], [0, 0], strict=False, fill=1, fill_from="front")'
+        == 'Matrix([Fraction(1, 1), Fraction(0, 1)], [Fraction(0, 1), Fraction(0, 1)], strict=False, fill=1, fill_from="front")'
     )
 
 

@@ -19,7 +19,7 @@ from fractions import Fraction
 
 M = TypeVar("M", bound="Matrix")
 
-init_args = namedtuple("init_args", ["strict", "fill", "fill_from"])
+init_args = namedtuple("init_args", ["strict", "fill", "fill_from", "max_denom"])
 matrix_index = namedtuple("matrix_index", ["i", "j"])
 matrix_size = namedtuple("matrix_size", ["m", "n"])
 
@@ -29,7 +29,7 @@ class SupportsLessThan(Protocol):
         ...
 
 
-def _leading_idx(seq: list[float]) -> SupportsLessThan:
+def _leading_idx(seq: list[Fraction]) -> SupportsLessThan:
     for i, val in enumerate(seq):
         if val != 0:
             return i
@@ -41,7 +41,7 @@ fill_from_vals = {"front", "back"}
 
 
 class Matrix:
-    """Represent Regular (Non-Ragged) Matrices of numeric types, and perform standard
+    """Represent Regular (Non-Ragged) Matrices of Rational types, and perform standard
     matrix operations on them. Supports most relevant Python protocols, making it easy
     to use in standardized applications, such as hash, len, subscripting, iteration and
     more. Implements support for standard matrix arithmetic operations, row operations,
@@ -57,6 +57,10 @@ class Matrix:
     Matrix. Default is fill = 0.
     - fill_from (str) - optional, whether to fill from "front" (prepend) or "back"
     (append) for non-strict Matrix. Default is "back".
+    - max_denom (int) - optional; internally Matrix instances store their values as
+    Fraction()s. Floating point numbers like 1/3 will not be expressed as
+    Fraction(1, 3). This arg allows to limit the denom to give the expected Fractions
+    more often. Default is 1_000_000.
 
     Raises:
     ValueError - if *rows is len 0. (No rows present)
@@ -70,15 +74,16 @@ class Matrix:
 
     def __init__(
         self: M,
-        *rows: Sequence[float],
+        *rows: Union[Sequence[float], Sequence[Fraction]],
         strict: bool = True,
         fill: float = 0,
         fill_from: Union[Literal["front"], Literal["back"]] = "back",
+        max_denom: int = 1_000_000,
     ):
         max_col = self._ensure_row_types(rows)
-        self._rows = [list(row) for row in rows]
+        self._args = init_args(strict, fill, fill_from, max_denom)
+        self._rows = [list(self._frac(val) for val in row) for row in rows]
         self._size = matrix_size(len(rows), max_col)
-        self._args = init_args(strict, fill, fill_from)
         self._normalize_dims()
 
     @staticmethod
@@ -142,12 +147,17 @@ class Matrix:
         """Helper method for prepending or appending self's fill value to each row,
         as needed."""
         for i, row in enumerate(self._rows):
-            extra = [self._args.fill] * (self.size.n - len(row))
+            extra = [self._frac(self._args.fill)] * (self.size.n - len(row))
             if self._args.fill_from == "back":
                 row.extend(extra)
             else:
                 extra.extend(row)
                 self._rows[i] = extra
+
+    def _frac(self, val: Union[float, Fraction]) -> Fraction:
+        """Alias for creating a denominator-limited Fractional representation of a
+        value based on self's init args."""
+        return Fraction(val).limit_denominator(self._args.max_denom)
 
     @classmethod
     def zeros(cls: Type[M], m: int, n: Optional[int] = None) -> M:
@@ -220,6 +230,9 @@ class Matrix:
             if (f := self._args.fill_from) != "back":
                 args_repr = ", ".join((args_repr, f'fill_from="{f}"'))
 
+            if (f := self._args.max_denom) != 1_000_000:
+                args_repr = ", ".join((args_repr, f"max_denom={f}"))
+
         return f"Matrix({args_repr})"
 
     # TODO: make output have aligned columns for prettier printing
@@ -240,10 +253,10 @@ class Matrix:
             return False
         return any(val in row for row in self)
 
-    def _key(self: M) -> tuple[Type[M], tuple[tuple[float, ...], ...]]:
+    def _key(self: M) -> tuple[Type[M], tuple[tuple[Fraction, ...], ...]]:
         """A tuple-key for use during Matrix hashing.
         Returns:
-        key tuple - (type(M), tuple[tuple[float, ...], ...]) where the tuples
+        key tuple - (type(M), tuple[tuple[Fraction, ...], ...]) where the tuples
         represent the underlying private self._rows member."""
         return (type(self), tuple(tuple(row) for row in self._rows))
 
@@ -251,12 +264,12 @@ class Matrix:
         """hash(self)"""
         return hash(self._key())
 
-    def __iter__(self) -> Generator[list[float], None, None]:
+    def __iter__(self) -> Generator[list[Fraction], None, None]:
         """iter(self) - yield the rows, from i = 1 to i = m."""
         for row in self._rows:
             yield row
 
-    def __reversed__(self) -> Generator[list[float], None, None]:
+    def __reversed__(self) -> Generator[list[Fraction], None, None]:
         """reversed(self) - yield the rows, from i = m to i = 1. The row elements
         remain in forward order, from j = 1 to j = n."""
         yield from reversed(self._rows)
@@ -269,13 +282,13 @@ class Matrix:
         finally:
             self._reverse_rows()
 
-    def cells(self) -> Generator[float, None, None]:
+    def cells(self) -> Generator[Fraction, None, None]:
         """Return an iterator over the values in the Matrix. Starting with i = 1, yield
         the elements from j = 1 to j = n, then progreses to the next row until i = m."""
         for row in self:
             yield from row
 
-    def ij_cell(self) -> Generator[tuple[matrix_index, float], None, None]:
+    def ij_cell(self) -> Generator[tuple[matrix_index, Fraction], None, None]:
         """Return an iterator over the values in the Matrix, including its index.
         Starting with i = i, yield (i, j) and the element for j = 1 to j = n. Continue
         towards i = m."""
@@ -283,7 +296,7 @@ class Matrix:
             for j, val in enumerate(row, start=1):
                 yield matrix_index(i, j), val
 
-    def idx_cell(self) -> Generator[tuple[int, float], None, None]:
+    def idx_cell(self) -> Generator[tuple[int, Fraction], None, None]:
         """Return an iterator over the values in the Matrix, including its overall
         index within. Beginning with i = 0, yield idx and the element for j = 1
         to j = n. Continue towards i = m. idx is the total offset from the beginning
@@ -292,16 +305,16 @@ class Matrix:
             yield idx, val
 
     @overload
-    def __getitem__(self, key: tuple[int, int]) -> float:
+    def __getitem__(self, key: tuple[int, int]) -> Fraction:
         ...
 
     @overload
-    def __getitem__(self, key: int) -> tuple[float, ...]:
+    def __getitem__(self, key: int) -> tuple[Fraction, ...]:
         ...
 
     def __getitem__(
         self, key: Union[tuple[int, int], int]
-    ) -> Union[float, tuple[float, ...]]:
+    ) -> Union[Fraction, tuple[Fraction, ...]]:
         """Get elements from the Matrix corresponding to the key. If k is an int, then
         return the corresponding row. If k is an int pair of the form [i, j], then
         return the jth element of the ith row.
@@ -461,10 +474,12 @@ class Matrix:
 
         # Each element in the matrix product AB is the dot product of the
         # corresponding row in A and the corresponding column in B.
-        result: list[list[float]] = [[0 for _ in range(p)] for _ in range(m)]
+        result: list[list[Fraction]] = [
+            [self._frac(0) for _ in range(p)] for _ in range(m)
+        ]
         for i, j in it.product(range(m), range(p)):
-            result[i][j] = sum(
-                self[i + 1, k + 1] * other[k + 1, j + 1] for k in range(n)
+            result[i][j] = self._frac(
+                sum(self[i + 1, k + 1] * other[k + 1, j + 1] for k in range(n))
             )
 
         return self.__class__(*result)
@@ -497,7 +512,6 @@ class Matrix:
         """Perform a row swap on self. Marked private as Matrix should be
         publically immutable."""
         self._rows[p - 1], self._rows[q - 1] = self._rows[q - 1], self._rows[p - 1]
-        self._remove_fractions()
         return self
 
     def row_mult(self: M, p: int, k: Union[float, Fraction]) -> M:
@@ -511,8 +525,7 @@ class Matrix:
     def _inplace_row_mult(self: M, p: int, k: Union[float, Fraction]) -> M:
         """Perform a row multiplication on self. Marked private as Matrix should be
         publically immutable."""
-        self._rows[p - 1] = [k * val for val in self._rows[p - 1]]
-        self._remove_fractions()
+        self._rows[p - 1] = [self._frac(k * val) for val in self._rows[p - 1]]
         return self
 
     def row_add(self: M, p: int, q: int) -> M:
@@ -530,7 +543,6 @@ class Matrix:
         self._rows[p - 1] = [
             x + y for x, y in zip(self._rows[p - 1], self._rows[q - 1])
         ]
-        self._remove_fractions()
         return self
 
     def row_mult_add(self: M, p: int, k: Union[float, Fraction], q: int) -> M:
@@ -548,10 +560,9 @@ class Matrix:
         self._inplace_row_mult(p, k)
         self._inplace_row_add(q, p)
         self._rows[p - 1] = old_row
-        self._remove_fractions()
         return self
 
-    def _leading_coeff(self) -> tuple[float, ...]:
+    def _leading_coeff(self) -> tuple[Fraction, ...]:
         """Return tuple of the leading coefficients for each row in Matrix."""
         return tuple(row[idx] for row, idx in zip(self, self._leading_coeff_idx()))
 
@@ -616,7 +627,12 @@ class Matrix:
         Args:
         display (bool) - optional, whether to display the intermediate matrices after
         each row operation. Default is False.
-        display_f"""
+        display_file (TextIO) - optional, the file to display too if display is True.
+        Default is stdout.
+
+        Raises:
+        RuntimeError - if the method fails to compute REF for any reason.
+        """
         if not display_file.writable():
             display = False
 
@@ -626,10 +642,9 @@ class Matrix:
 
         # First, sort the rows by leading coefficient position
         rv._rows.sort(key=_leading_idx)
-        if rv != self:
-            if display:
-                print("Swapped rows. Before:\n", self, file=display_file)
-                print("After:\n", rv, file=display_file)
+        if rv != self and display:
+            print("Swapped rows. Before:\n", self, file=display_file)
+            print("After:\n", rv, file=display_file)
 
         # Starting with row i, eliminate all non-zero values in column i below row i.
         # Repeat for row i to m. The result is that the lower triangle of the Matrix
@@ -642,16 +657,7 @@ class Matrix:
                 if j <= i or row[i - 1] == 0:
                     continue
 
-                # If the values are integral, then we can use a Fraction() to help
-                # avoid floating point errors.
-                num_den = [-row[i - 1], eqn[i - 1]]
-                frac = (float(val) if isinstance(val, int) else val for val in num_den)
-
-                if all(isinstance(val, float) and val.is_integer() for val in frac):
-                    k = Fraction(num_den[0], num_den[1])
-                else:
-                    k = num_den[0] / num_den[1]
-
+                k = self._frac(-row[i - 1] / eqn[i - 1])
                 rv._inplace_row_mult_add(i, k, j)
 
                 if display:
@@ -663,21 +669,8 @@ class Matrix:
 
         return rv
 
-    def _remove_fractions(self: M) -> M:
-        """Convert all values in the Matrix to an int or float as appropriate."""
-        for i, row in enumerate(self._rows):
-            for j, el in enumerate(row):
-                int_ratio = el.as_integer_ratio()
-
-                if abs(int_ratio[1]) == 1:
-                    self._rows[i][j] = int(el)
-                else:
-                    self._rows[i][j] = float(el)
-
-        return self
-
     def rref(self: M, display: bool = False, display_file: TextIO = stdout) -> M:
-        """ Return a Reduced Row Echelon-equivalent of self."""
+        """Return a Reduced Row Echelon-equivalent of self."""
         if not display_file.writable():
             display = False
 
@@ -693,7 +686,7 @@ class Matrix:
                 continue
 
             lead = leading[i - 1]
-            k = 1 / lead
+            k = self._frac(1 / lead)
             rv._inplace_row_mult(i, k)
 
             if display:
@@ -738,26 +731,26 @@ class Matrix:
             )
         )
 
-    def diagonal(self) -> tuple[float, ...]:
+    def diagonal(self) -> tuple[Fraction, ...]:
         """Return a tuple corresponding to the values on self's main diagonal."""
         return tuple(val for (i, j), val in self.ij_cell() if i == j)
 
-    def diag(self) -> tuple[float, ...]:
+    def diag(self) -> tuple[Fraction, ...]:
         """Return a tuple corresponding to the values on self's main diagonal.
         (alias of self.diagonal)"""
         return self.diagonal()
 
-    def trace(self) -> float:
+    def trace(self) -> Fraction:
         """Return the trace of self, which is the sum of the values on its main
         diagonal."""
-        return sum(self.diag())
+        return self._frac(sum(self.diag()))
 
-    def tr(self) -> float:
+    def tr(self) -> Fraction:
         """Return the trace of self, which is the sum of the values on its main
         diagonal. (alias of self.trace)"""
         return self.trace()
 
-    def minor(self, i: int, j: int) -> float:
+    def minor(self, i: int, j: int) -> Fraction:
         """Return self's i, j minor, defined as the determinant of the submatrix
         constructed by removing the ith row and jth column from self."""
         if not self.is_square:
@@ -765,7 +758,7 @@ class Matrix:
 
         return self.submatrix(i, j).det()
 
-    def determinant(self, i: int = 1) -> float:
+    def determinant(self, i: int = 1) -> Fraction:
         """Return the determinant of this Matrix."""
         if not self.is_square:
             raise ValueError("The determinant is only defined for square matrices.")
@@ -773,11 +766,11 @@ class Matrix:
         if self.size.n == 1:
             return self[1, 1]
         else:
-            return sum(
-                self.cofactor(i, j) * aij for j, aij in enumerate(self[i], start=1)
+            return self._frac(
+                sum(self.cofactor(i, j) * aij for j, aij in enumerate(self[i], start=1))
             )
 
-    def det(self, i: int = 1) -> float:
+    def det(self, i: int = 1) -> Fraction:
         """Return the determinant of this Matrix. (alias of self.determinant)"""
         return self.determinant(i)
 
@@ -809,10 +802,10 @@ class Matrix:
             for i, row in enumerate(self)
         )
 
-    def cofactor(self, i: int, j: int) -> float:
+    def cofactor(self, i: int, j: int) -> Fraction:
         """Compute the cofactor of self[i, j]. Defined as:
         -1^(i + j) * Mij."""
-        return ((-1) ** (i + j)) * self.minor(i, j)
+        return self._frac(((-1) ** (i + j)) * self.minor(i, j))
 
     def comatrix(self: M) -> M:
         """Compute the comatrix of self, defined as the matrix consisting of self's
