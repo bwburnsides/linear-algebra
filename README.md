@@ -1,1 +1,1 @@
-"# linear-algebra" 
+# linear-algebra
