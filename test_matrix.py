@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import pytest
 from matrix import Matrix as M
+import math
 
 
 @contextmanager
@@ -433,3 +434,111 @@ def test_trace():
 
     assert m.trace() == 3
     assert m.tr() == 3
+
+
+@pytest.mark.parametrize(
+    "m, expected",
+    [
+        (M([2, 1], [7, 4]), True),
+        (M([-5 / 3, 2 / 3, 11 / 3], [0, 4 / 3, 4], [2, -1, -5]), False),
+        (M([3 / 2, 1 / 2, 5], [5 / 3, -2 / 3, 0], [1, 1, 1]), True),
+        (M([-6, -5, -4], [4, 5, 2], [0, 1, -1]), True),
+    ],
+)
+def test_is_invertible(m, expected):
+    assert m.is_invertible() == expected
+
+
+@pytest.mark.parametrize(
+    "m, expected",
+    [
+        (M([2, 1], [7, 4]), M([4, 1], [-7, 2])),
+        (
+            M([-math.sin(4), -math.cos(4)], [math.cos(4), -math.sin(4)]),
+            M([-math.sin(4), math.cos(4)], [-math.cos(4), -math.sin(4)]),
+        ),
+        (
+            M([-6, -5, -4], [4, 5, 2], [0, 1, -1]),
+            M([-7 / 6, -3 / 2, 5 / 3], [2 / 3, 1, -2 / 3], [2 / 3, 1, -5 / 3]),
+        ),
+    ],
+)
+def test_inverse(m, expected):
+    assert m.inverse() == expected
+    assert m.inv() == expected
+
+
+@pytest.mark.parametrize(
+    "m, expected",
+    [
+        (M([-2, -3, 3], [6, 1, -49]), M([-9], [5])),
+        (M([4, -1, 1, -5], [2, 2, 3, 10], [5, -2, 6, 12]), M([-2, 1, 4])),
+    ],
+)
+def test_solution(m, expected):
+    assert m.solution() == expected
+
+
+def test_linear_combination():
+    A = M([2, 1, -1], [1, -3, 3])
+    b = M([-5], [15])
+
+    assert A.linear_combination(b) == M([0, 0, 5])
+
+
+@pytest.mark.parametrize(
+    "m, expected",
+    [
+        (M([-14]), -14),
+        (M([2, 5], [3, 1]), -13),
+        (M([5, 1, 3], [0, 2, 2], [0, 0, -6]), -60),
+        (
+            M(
+                [5, 2, 0, 0, 5],
+                [0, 1, 4, 2, 4],
+                [0, 0, 6, 3, 6],
+                [0, 0, 4, 3, 7],
+                [0, 0, 0, 0, 7],
+            ),
+            210,
+        ),
+        (M([6, 9, -7, 2], [0, 0, 8, 0], [0, 0, 5, 4], [0, 0, 0, -1]), 0),
+        (M([2, -4], [3, -6]), 0),
+        (M([1, 0, 4], [-3, 1, 2], [4, 0, 4]), -12),
+        (M([1, 6, -4], [1, 2, 1], [3, 9, 1]), -7),
+        (M([-math.sin(4), -math.cos(4)], [math.cos(4), -math.sin(4)]), 1),
+        (M([-3, 1], [9, -3]), 0),
+        (M([1, 1], [0, -1]), -1),
+        (M([6, 12], [3, -15]), -126),
+        (M([2, 4], [1, -5]), -14),
+        (M([-2, 1], [5, 0]), -5),
+        (M([2, -1], [-5, 0]), -5),
+    ],
+)
+def test_determinant(m, expected):
+    assert m.determinant() == expected
+    assert m.det() == expected
+
+
+def test_hw9_num5():
+    A = M([6, 1], [2, 7])
+
+    assert (A.inv()).det() == (1 / 40)
+
+
+def test_adjugate():
+    A = M([-6, -5, -4], [4, 5, 2], [0, 1, -1])
+
+    adjA = M([-7, -9, 10], [4, 6, -4], [4, 6, -10])
+
+    assert A.adjugate() == adjA
+    assert A.adjoint() == adjA
+    assert A.adj() == adjA
+
+
+def test_is_collinear():
+    assert M.is_collinear((2, 7), (3, 10), (5, 16))
+
+
+def test_is_coplanar():
+    assert M.is_coplanar((0, -2, -4), (3, 0, -2), (0, 1, -1), (-2, 2, 0))

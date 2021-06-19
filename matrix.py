@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sys import stdout
 from collections.abc import Sequence, Generator, Iterator
 from collections import namedtuple
 from typing import (
@@ -10,7 +11,9 @@ from typing import (
     TypeVar,
     Type,
     Optional,
+    TextIO,
 )
+from contextlib import contextmanager
 import itertools as it
 from fractions import Fraction
 
@@ -257,6 +260,14 @@ class Matrix:
         """reversed(self) - yield the rows, from i = m to i = 1. The row elements
         remain in forward order, from j = 1 to j = n."""
         yield from reversed(self._rows)
+
+    @contextmanager
+    def _temp_reverse_rows(self):
+        self._reverse_rows()
+        try:
+            yield self
+        finally:
+            self._reverse_rows()
 
     def cells(self) -> Generator[float, None, None]:
         """Return an iterator over the values in the Matrix. Starting with i = 1, yield
@@ -600,8 +611,15 @@ class Matrix:
         self._rows = list(reversed(self._rows))
         return self
 
-    def ref(self: M, display: bool = False) -> M:
-        """Produce a Row Echelon-equivalent of self."""
+    def ref(self: M, display: bool = False, display_file: TextIO = stdout) -> M:
+        """Produce a Row Echelon-equivalent of self.
+        Args:
+        display (bool) - optional, whether to display the intermediate matrices after
+        each row operation. Default is False.
+        display_f"""
+        if not display_file.writable():
+            display = False
+
         rv = self.copy()
         if rv.is_ref():
             return rv
@@ -610,8 +628,8 @@ class Matrix:
         rv._rows.sort(key=_leading_idx)
         if rv != self:
             if display:
-                print("Swapped rows. Before:\n", self)
-                print("After:\n", rv)
+                print("Swapped rows. Before:\n", self, file=display_file)
+                print("After:\n", rv, file=display_file)
 
         # Starting with row i, eliminate all non-zero values in column i below row i.
         # Repeat for row i to m. The result is that the lower triangle of the Matrix
@@ -637,8 +655,8 @@ class Matrix:
                 rv._inplace_row_mult_add(i, k, j)
 
                 if display:
-                    print(f"R{j} + {k}R{i} --> R{j}")
-                    print(rv, end="\n\n")
+                    print(f"R{j} + {k}R{i} --> R{j}", file=display_file)
+                    print(rv, end="\n\n", file=display_file)
 
         if not rv.is_ref():
             raise RuntimeError("Failed to compute Row Echelon Form")
@@ -658,9 +676,12 @@ class Matrix:
 
         return self
 
-    def rref(self: M, display: bool = False) -> M:
+    def rref(self: M, display: bool = False, display_file: TextIO = stdout) -> M:
         """ Return a Reduced Row Echelon-equivalent of self."""
-        rv = self.ref(display)
+        if not display_file.writable():
+            display = False
+
+        rv = self.ref(display, display_file)
         rv._reverse_rows()
 
         leading = list(rv._leading_coeff())
@@ -676,8 +697,9 @@ class Matrix:
             rv._inplace_row_mult(i, k)
 
             if display:
-                print(f"{k}R{i} --> R{i}")
-                print(rv, end="\n\n")
+                with self._temp_reverse_rows() as un_rev:
+                    print(f"{k}R{i} --> R{i}", file=display_file)
+                    print(un_rev, end="\n\n", file=display_file)
 
         it_rv1: Iterator = iter(rv)
         for i, eqn in enumerate(it_rv1, start=1):
@@ -696,12 +718,13 @@ class Matrix:
                 rv._inplace_row_mult_add(i, dec, j)
 
                 if display:
-                    print(f"R{j} + {k}R{i} --> R{j}")
-                    print(rv, end="\n\n")
+                    with self._temp_reverse_rows() as un_rev:
+                        print(f"R{j} + {k}R{i} --> R{j}", file=display_file)
+                        print(un_rev, end="\n\n", file=display_file)
 
         rv._reverse_rows()
         if display:
-            print(rv, end="\n\n")
+            print(rv, end="\n\n", file=display_file)
         return rv
 
     def submatrix(self: M, i: int, j: int) -> M:
@@ -807,6 +830,11 @@ class Matrix:
         adj(A) = (C_A)^T"""
         return self.comatrix().transpose()
 
+    def adjoint(self: M) -> M:
+        """Compute the adjoint matrix of self, defined as self's transposed comatrix.
+        adj(A) = (C_A)^T. (alias of self.adjugate)"""
+        return self.adjugate()
+
     def adj(self: M) -> M:
         """Compute the adjugate matrix of self, defined as self's transposed comatrix.
         adj(A) = (C_A)^T. (alias of self.adjugate)"""
@@ -840,3 +868,46 @@ class Matrix:
         is the last column
         """
         return self.augment(vec, j)
+
+    def num_solutions(self) -> Union[Literal[-1], Literal[0], Literal[1]]:
+        """Compute the number of solutions that the system contains.
+        Return:
+        -1 - if there are infinite solutions
+         0 - if there are no solutions
+         1 - if there is a unique solution
+        """
+
+        # "The system does not have a unique solution because the determinant of the
+        # coefficient matrix is zero."
+        raise NotImplementedError
+
+    def solution(self) -> tuple[float, ...]:
+        """Compute the solution of the (augmented) matrix.
+        Return:
+        tuple[float, ...] - a tuple of len(m) corresponding to solution.
+
+        Raises:
+        ValueError - if there is no solution, or infinite solutions.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def polynomial_fit(cls: Type[M], *points: tuple[float, float]) -> M:
+        """Compute the polynomial of least degree that passes through the
+        given points."""
+        raise NotImplementedError
+
+    @classmethod
+    def is_collinear(cls, *points: tuple[float, float]) -> bool:
+        """Determine whether the supplied points are collinear."""
+        raise NotImplementedError
+
+    @classmethod
+    def is_coplanar(cls, *points: tuple[float, float, float]) -> bool:
+        """Determine whether the supplied points are coplanar."""
+        raise NotImplementedError
+
+    def linear_combination(self: M, b: M) -> M:
+        """Express column vector b as a linear combination of the columns of A,
+        if possible."""
+        raise NotImplementedError
