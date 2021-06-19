@@ -17,7 +17,7 @@ from fractions import Fraction
 M = TypeVar("M", bound="Matrix")
 
 init_args = namedtuple("init_args", ["strict", "fill", "fill_from"])
-coord = namedtuple("coord", ["i", "j"])
+matrix_index = namedtuple("matrix_index", ["i", "j"])
 matrix_size = namedtuple("matrix_size", ["m", "n"])
 
 
@@ -39,20 +39,20 @@ fill_from_vals = {"front", "back"}
 
 class Matrix:
     """Represent Regular (Non-Ragged) Matrices of numeric types, and perform standard
-    matrix operations on them. Supports most relevant Python protocols, making it easy to
-    use in standardized applications, such as hash, len, subscripting, iteration and more.
-    Implements support for standard matrix arithmetic operations, row operations, and
-    other matrix quantities. Meant to be used as a loosely immutable type with
+    matrix operations on them. Supports most relevant Python protocols, making it easy
+    to use in standardized applications, such as hash, len, subscripting, iteration and
+    more. Implements support for standard matrix arithmetic operations, row operations,
+    and other matrix quantities. Meant to be used as a loosely immutable type with
     1-based indexing.
 
     Args:
-    *rows (Sequence[float]) - any number of rows to build matrix from.
-    strict (bool) - optional, a strict matrix's *rows input MUST be non-ragged. For
+    - *rows (Sequence[float]) - any number of rows to build matrix from.
+    - strict (bool) - optional, a strict matrix's *rows input MUST be non-ragged. For
     non-strict Matrix, :fill: and :fill_from: are used to produce the missing values.
     Default is strict = True.
-    fill (float) - optional, the value to enter into missing spaces for non-strict
+    - fill (float) - optional, the value to enter into missing spaces for non-strict
     Matrix. Default is fill = 0.
-    fill_from (str) - optional, whether to fill from "front" (prepend) or "back"
+    - fill_from (str) - optional, whether to fill from "front" (prepend) or "back"
     (append) for non-strict Matrix. Default is "back".
 
     Raises:
@@ -264,13 +264,13 @@ class Matrix:
         for row in self:
             yield from row
 
-    def ij_cell(self) -> Generator[tuple[coord, float], None, None]:
+    def ij_cell(self) -> Generator[tuple[matrix_index, float], None, None]:
         """Return an iterator over the values in the Matrix, including its index.
         Starting with i = i, yield (i, j) and the element for j = 1 to j = n. Continue
         towards i = m."""
         for i, row in enumerate(self, start=1):
             for j, val in enumerate(row, start=1):
-                yield coord(i, j), val
+                yield matrix_index(i, j), val
 
     def idx_cell(self) -> Generator[tuple[int, float], None, None]:
         """Return an iterator over the values in the Matrix, including its overall
@@ -320,7 +320,7 @@ class Matrix:
         val: Any,
         start: tuple[int, int] = (1, 1),
         end: Optional[tuple[int, int]] = None,
-    ) -> tuple[int, int]:
+    ) -> matrix_index:
         """Return the (i, j) index of the first element in Matrix to match val.
         start and end represent the starting and ending rows and columns to search
         through.
@@ -345,7 +345,7 @@ class Matrix:
         for i, row in enumerate(self._rows[slice(start[0] - 1, end[0])]):
             for j, cell in enumerate(row[slice(start[1] - 1, end[1])]):
                 if cell == val:
-                    return (i + start[0], j + start[1])
+                    return matrix_index(i + start[0], j + start[1])
         raise ValueError(
             f"The val, {val}, not found in Matrix with {start = }, {end = }."
         )
@@ -374,7 +374,6 @@ class Matrix:
 
     def __eq__(self, other: Any) -> bool:
         """self == other"""
-
         # A Matrix and another object can only be equal is other is also a Matrix.
         if not isinstance(other, type(self)):
             return False
