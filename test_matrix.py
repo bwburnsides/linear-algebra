@@ -420,12 +420,12 @@ def test_submatrix():
 def test_diagonal():
     m = M([2, 1, -1, 8], [-3, -1, 2, -11], [-2, 1, 2, -3])
 
-    assert m.diagonal() == (2, -1, 2)    
+    assert m.diagonal() == (2, -1, 2)
     assert m.diag() == (2, -1, 2)
 
-    I = M([1, 0, 0], [0, 1, 0], [0, 0, 1])
-    assert I.diagonal() == (1, 1, 1)
-    assert I.diag() == (1, 1, 1)
+    Ident = M([1, 0, 0], [0, 1, 0], [0, 0, 1])
+    assert Ident.diagonal() == (1, 1, 1)
+    assert Ident.diag() == (1, 1, 1)
 
 
 def test_trace():
@@ -433,4 +433,3 @@ def test_trace():
 
     assert m.trace() == 3
     assert m.tr() == 3
-

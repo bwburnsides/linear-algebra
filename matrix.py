@@ -18,6 +18,7 @@ M = TypeVar("M", bound="Matrix")
 
 init_args = namedtuple("init_args", ["strict", "fill", "fill_from"])
 coord = namedtuple("coord", ["i", "j"])
+matrix_size = namedtuple("matrix_size", ["m", "n"])
 
 
 class SupportsLessThan(Protocol):
@@ -37,28 +38,67 @@ fill_from_vals = {"front", "back"}
 
 
 class Matrix:
+    """Represent Regular (Non-Ragged) Matrices of numeric types, and perform standard
+    matrix operations on them. Supports most relevant Python protocols, making it easy to
+    use in standardized applications, such as hash, len, subscripting, iteration and more.
+    Implements support for standard matrix arithmetic operations, row operations, and
+    other matrix quantities. Meant to be used as a loosely immutable type with
+    1-based indexing.
+
+    Args:
+    *rows (Sequence[float]) - any number of rows to build matrix from.
+    strict (bool) - optional, a strict matrix's *rows input MUST be non-ragged. For
+    non-strict Matrix, :fill: and :fill_from: are used to produce the missing values.
+    Default is strict = True.
+    fill (float) - optional, the value to enter into missing spaces for non-strict
+    Matrix. Default is fill = 0.
+    fill_from (str) - optional, whether to fill from "front" (prepend) or "back"
+    (append) for non-strict Matrix. Default is "back".
+
+    Raises:
+    ValueError - if *rows is len 0. (No rows present)
+    ValueError - if row[j] max len is 0, j from 1 to n. (No cols present)
+    ValueError - If any row contain non-numeric value.
+    TypeError - If any row is non-Sequence.
+    ValueError - If strict Matrix is constructed with ragged *rows.
+    TypeError - If non strict Matrix is constructed with non-numeric :fill:.
+    ValueError - If non strict Matrix is constructed with non
+    {"front", "back"} :fill_from:."""
+
     def __init__(
         self: M,
         *rows: Sequence[float],
         strict: bool = True,
         fill: float = 0,
         fill_from: Union[Literal["front"], Literal["back"]] = "back",
-    ):  # TODO: Break __init__ into helper methods
+    ):
+        max_col = self._ensure_row_types(rows)
+        self._rows = [list(row) for row in rows]
+        self._size = matrix_size(len(rows), max_col)
+        self._args = init_args(strict, fill, fill_from)
+        self._normalize_dims()
+
+    @staticmethod
+    def _ensure_row_types(rows) -> int:
+        """Helper method to check the row and element types and compute the max column
+        count. Returns max col count (int).
+        Raises:
+        ValueError - if Matrix doesn't have at least 1 row and 1 column.
+        TypeError - if rows are Sequence or elements aren't numeric."""
         # Ensure at least 1 row
-        try:
-            max_len = max(len(row) for row in rows)
-        except ValueError:
+        if not len(rows):
             raise ValueError("Matrix must have at least 1 row.")
 
-        # Ensure at least 1 col
-        if not max_len:
-            raise ValueError("Matrix must have at least 1 column.")
-
-        # Check that all rows are Sequences, and that all cells are numeric
+        # Ensure all Sequences
+        max_col = 0
         for i, row in enumerate(rows):
             if not isinstance(row, Sequence):
                 raise TypeError(f"All rows must be Sequence: {i} = {row}.")
 
+            # Keep track of max col count
+            max_col = max(max_col, len(row))
+
+            # Ensure all numeric elements
             for j, val in enumerate(row):
                 if not isinstance(val, entry_types):
                     raise ValueError(
@@ -67,39 +107,44 @@ class Matrix:
                         f"Got: {val} at {i}, {j} with type {type(val).__name__}."
                     )
 
-        self._rows = [list(row) for row in rows]
-        self._size = (len(rows), max_len)
+        # Ensure at least 1 col
+        if not max_col:
+            raise ValueError("Matrix must have at least 1 column.")
+        return max_col
 
-        # Strict matrices must have equal length rows. Non-strict matrices have missing
-        # values supplied via kwarg :fill:
-        if strict:
-            if not all(len(row) == max_len for row in rows):
+    def _normalize_dims(self) -> None:
+        """Helper method for normalizing Matrix's dimensions. For strict matrices,
+        raises ValeError for ragged inputs. For non-strict, uses :fill_from: to apply
+        :fill: to each row."""
+        if self._args.strict:
+            if not all(len(row) == self.size.n for row in self._rows):
                 raise ValueError("Strict Matrix rows must have equal lengths.")
         else:
-            if not isinstance(fill, entry_types):
-                raise ValueError(
+            if not isinstance(self._args.fill, entry_types):
+                raise TypeError(
                     f"Matrix row fill value must be of the following types: "
-                    f"{entry_types}. Got {fill = } with type {type(fill)}."
+                    f"{entry_types}. Got {self._args.fill} with type "
+                    f"{type(self._args.fill).__name__}."
                 )
 
-            if fill_from not in {"back", "front"}:
+            if self._args.fill_from not in {"back", "front"}:
                 raise ValueError(
                     f"Matrix row fill from mode must be in {fill_from_vals}. "
-                    f"Got '{fill_from}'"
+                    f"Got '{self._args.fill_from}'"
                 )
 
-            # Fill missing values in non-strict Matrices according
-            # to :fill: and :fill_from:
-            for i, row in enumerate(self._rows):
-                extra = [fill] * (max_len - len(row))
-                if fill_from == "back":
-                    row.extend(extra)
-                else:
-                    extra.extend(row)
-                    self._rows[i] = extra
+            self._pad_rows()
 
-        # Save passed in arge for repr output
-        self._args = init_args(strict, fill, fill_from)
+    def _pad_rows(self) -> None:
+        """Helper method for prepending or appending self's fill value to each row,
+        as needed."""
+        for i, row in enumerate(self._rows):
+            extra = [self._args.fill] * (self.size.n - len(row))
+            if self._args.fill_from == "back":
+                row.extend(extra)
+            else:
+                extra.extend(row)
+                self._rows[i] = extra
 
     @classmethod
     def zeros(cls: Type[M], m: int, n: Optional[int] = None) -> M:
@@ -132,12 +177,12 @@ class Matrix:
         return len(self._rows)
 
     @property
-    def size(self) -> tuple[int, int]:
+    def size(self) -> matrix_size:
         """The size of the Matrix, in (m x n) form."""
         return self._size
 
     @property
-    def shape(self) -> tuple[int, int]:
+    def shape(self) -> matrix_size:
         """The size of the Matrix in (m x n) form. (alias of self.size)"""
         return self.size
 
@@ -145,19 +190,19 @@ class Matrix:
     def is_square(self) -> bool:
         """Whether the Matrix is square. Square matrices have the same
         number of rows and columns."""
-        return self.size[0] == self.size[1]
+        return self.size.m == self.size.n
 
     @property
     def is_row(self) -> bool:
         """Whether the Matrix is a row matrix. Row matrices have 1 row
         and n columns."""
-        return self.size[0] == 1
+        return self.size.m == 1
 
     @property
     def is_column(self) -> bool:
         """Whether the Matrix is a column matrix. Column matrices have m rows
         and 1 column."""
-        return self.size[1] == 1
+        return self.size.n == 1
 
     def __repr__(self) -> str:
         """repr(self)"""
@@ -511,7 +556,7 @@ class Matrix:
                     idxs.append(j)
                     break
             else:
-                idxs.append(self.size[1] - 1)
+                idxs.append(self.size.n - 1)
         return tuple(idxs)
 
     def is_ref(self) -> bool:
@@ -703,7 +748,7 @@ class Matrix:
         if not self.is_square:
             raise ValueError("The determinant is only defined for square matrices.")
 
-        if self.size[1] == 1:
+        if self.size.n == 1:
             return self[1, 1]
         else:
             return sum(
@@ -787,3 +832,12 @@ class Matrix:
         is the last column
         """
         raise NotImplementedError
+
+    def aug(self: M, vec: Sequence[float], j=None) -> M:
+        """Augment a sequence of floats to a new Matrix.
+
+        Args:
+        j (int) - Optional, specify which column to insert vec into to. Default
+        is the last column
+        """
+        return self.augment(vec, j)
